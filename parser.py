@@ -1,4 +1,5 @@
 from collections import defaultdict
+#载入训练好的模型
 def loadmodel(modelfile = ""):
     nonterminal = []
     lexicalRule = defaultdict(float)
@@ -15,6 +16,7 @@ def loadmodel(modelfile = ""):
                 syntacticRule[(temp[0], right[0], right[1])] = float(temp[2])
     return nonterminal, lexicalRule, syntacticRule
 
+#根据bp表得到解析的语法树的括号表示
 def getTree(words, A, bp, left, right):
         if left == right:
             return "(" + A + " " + words[left - 1] + ")"
@@ -22,6 +24,7 @@ def getTree(words, A, bp, left, right):
             B, C, mid = bp[(A, left, right)]
             return "(" + A + getTree(words, B, bp, left, mid) + getTree(words, C, bp, mid+1, right) + ")"
 
+#CYK算法解析句子
 def CYKparser(sentence, nonterminal, lexicalRule, syntacticRule):
     words = sentence.split()
     slen = len(words)
@@ -44,67 +47,67 @@ def CYKparser(sentence, nonterminal, lexicalRule, syntacticRule):
     parseTree = getTree(words, "S", bp, 1, slen)
     return chart["S", 1, slen], parseTree
 
-def writeBridge(sentence, nonterminal, lexicalRule, syntacticRule):
-    output = []
-    inside = insidePro(sentence, nonterminal, lexicalRule, syntacticRule)
-    outside = outsidePro(sentence, nonterminal, lexicalRule, syntacticRule, inside)
+#计算内向概率
+def calInside(sentence, nonterminal, lexicalRule, syntacticRule):
+    words = sentence.split()
+    slen = len(words)
+    inside = defaultdict(float)
+    for i in range(1, slen + 1):
+        for N in nonterminal:
+            inside[(N, i, i)] = lexicalRule[(N, words[i - 1])]
+
+    for i in range(1, slen):
+        for p in range(1, slen - i + 1):
+            q = p + i
+            for(A, B, C) in syntacticRule.keys():
+                for d in range(p, q):
+                    if inside[(B, p, d)] and inside[(C, d + 1, q)]:
+                        inside[(A, p, q)] += syntacticRule[(A, B, C)] * inside[(B, p, d)] * inside[(C, d + 1, q)]
+
+    return inside
+
+#计算外向概率
+def calOutside(sentence, nonterminal, lexicalRule, syntacticRule, inside):
+    words = sentence.split()
+    slen = len(words)
+    outside = defaultdict(float)
+    outside[("S", 1, slen)] = 1
+    for p in range(1, slen + 1):
+        for q in range(slen, 0, -1):
+            # if(p == 1 and q == slen):
+            #     continue
+            for (A, B, C) in syntacticRule.keys():
+                for e in range(q + 1, slen + 1):
+                    outside[(B, p, q)] += outside[(A, p, e)] * syntacticRule[(A, B, C)] * inside[(C, q + 1, e)]
+            for (A, C, B) in syntacticRule.keys():
+                for e in range(1, p):
+                    outside[(B, p, q)] += outside[(A, e, q)] * syntacticRule[(A, C, B)] * inside[(C, e, p - 1)]
+    return outside
+
+#将内向概率和外向概率组合用于输出
+def getInAndOut(inside, outside):
+    ioProbMap = {}
     for i in inside.keys():
         for j in outside.keys():
-            if i[0] == j[0]:
-                if i[1] == j[1] and i[2] == j[2] and (inside.get(i) != 0 and outside.get(j) != 0):
-                    s = '%s # %s # %s # %.6f # %.6f' %(j[0], j[1], j[2], inside.get(i), outside.get(j))
-                    output.append(s)
-    output.sort()
-    return output
-
-
-def insidePro(sentence, nonterminal, lexicalRule, syntacticRule):
-    inside = defaultdict(float)
-    x = sentence.split()
-    n = len(x)
-    for i in range(1,1+n):
-        w = x[i-1]
-        for X in nonterminal:
-            inside[X, i, i] = lexicalRule[(X, w)]
-
-    for l in range(1,n):
-        for i in range(1,n-l+1):
-            j = i+l
-            for(A, B, C) in syntacticRule.keys():
-                for k in range(i,j):
-                    if inside[B, i, k] and inside[C, k+1, j]:
-                        inside[A, i, j] += syntacticRule[(A, B, C)] * inside[B, i, k] * inside[C, k+1, j]
-
-    if inside["S", 1, n]:
-        return inside
-    else:
-        print(y)
-
-
-def outsidePro(sentence, nonterminal, lexicalRule, syntacticRule, inside):
-    outside = defaultdict(float)
-    x = sentence.split()
-    n = len(x)
-    outside["S", 1, n] = 1
-    for i in range(1,n+1):
-        for j in range(n,0,-1):
-            if(i==1 and j ==n):
-                continue
-            for (B, C, A) in syntacticRule.keys():
-                for k in range(1,i):
-                    outside[A, i, j] += syntacticRule[(B, C, A)] * inside[C, k, i-1] * outside[B, k, j]
-            for (B, A, C) in syntacticRule.keys():
-                for k in range(j+1, n+1):
-                    outside[A, i, j] += syntacticRule[(B,A,C)] * inside[C, j+1, k] * outside[B, i, k]
-    return outside
+            if i == j and inside.get(i) != 0 and outside.get(j) != 0:
+                    key = '%s # %s # %s # %.8f # %.8f' %(j[0], j[1], j[2], inside.get(i), outside.get(j))
+                    ioProbMap[key] = (inside.get(i), outside.get(j))
+    ioProbMap = sorted(ioProbMap.items(), key=lambda x:(x[0]))
+    ioProbMap.sort(key=lambda x:(x[1]), reverse = True)
+    ioProbs = []
+    for item in ioProbMap:
+        ioProbs.append(item[0])
+    return ioProbs
 
 if __name__ == '__main__':
     nonterminal, lexicalRule, syntacticRule = loadmodel("model.txt")
     sentence = "a boy with a telescope saw a girl"
     parsePro, parseTree = CYKparser(sentence, nonterminal, lexicalRule, syntacticRule)
-    ioProbs = writeBridge(sentence, nonterminal, lexicalRule, syntacticRule)
+    inside = calInside(sentence, nonterminal, lexicalRule, syntacticRule)
+    outside = calOutside(sentence, nonterminal, lexicalRule, syntacticRule, inside)
+    ioProbs = getInAndOut(inside, outside)
     with open("parse.txt", "w") as f:
         f.write(parseTree + "\n")
-        f.write("%s\n" % parsePro)
+        f.write("%.8f\n" % parsePro)
         for ioProb in ioProbs:
             f.write(ioProb + "\n")
